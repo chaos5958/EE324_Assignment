@@ -1,0 +1,13 @@
+1. name: Yeo Hyun Ho
+2. studentID: 20120597
+3. assignment number: 2
+4. collaborator: none
+5. time: >10h
+6. suggestion: I think chacing is one of the most imporat features in the proxy.
+               If the assignment is more focused in it, it will be more interesting.
+7. extra work: I implemented "caching" following the percept2 resource	    
+               It was really hard to implement using fork, 
+	       because forked child process doesn't share memory with parent.
+	       Therefore, I use file(FILE*) to communicate with parent process.
+	       
+	       
