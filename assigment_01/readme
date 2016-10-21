@@ -1,0 +1,40 @@
+EE324 PA-1 20120597 Yeo Hyun Ho 
+
+Communication between a single client and a single server
+
+1. How to run the program 
+
+1) Complile - make command
+
+2) Server-side
+./PA-server [port]
+
+3) Client-side
+./PA-client [host] [port]
+
+....
+type a command: 0x003~0x005
+....
+(if the command is 0x003)
+type a file name: [file name]
+....
+
+
+2. Additional explanation
+
+In server, I used linked list to save data come from a client in the memory.
+
+struct recv_data{
+    char *data;
+   struct recv_data *next_data
+} 
+
+3. Remained problem to handle
+
+Somtimes, '\n' is missed while transmitting a text file. 
+However, I haven't solved it yet. 
+
+ 
+
+
+
