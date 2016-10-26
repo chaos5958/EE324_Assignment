@@ -1,5 +1,6 @@
 *.gz
 *.pdf
 *.o
+*.log
 parse
 proxy

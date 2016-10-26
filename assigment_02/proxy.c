@@ -16,8 +16,10 @@
 #include "parse.h"
 
 #define LISTEN_QUEUE_NUM 100
-#define MAX_BUF_SIZE 10000
+#define MAX_BUF_SIZE 100000
 #define MAX_PORT_LEN 6
+#define LOG_MSG_LEN 100
+
 void sigchld_handler(int s)
 {
     while(waitpid(-1, NULL, WNOHANG) > 0);
@@ -30,6 +32,13 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);   
 }
 
+unsigned short get_in_port(struct sockaddr *sa)
+{
+    if(sa->sa_family == AF_INET)
+        return ((struct sockaddr_in*)sa)->sin_port;
+    return 0;
+}
+
 int main (int argc, char *argv[])
 {
     char proxy_port_num[MAX_PORT_LEN];
@@ -38,12 +47,14 @@ int main (int argc, char *argv[])
     int child_pid;
     int rv, numbytes = 0;
     char s[INET6_ADDRSTRLEN];
+    char log[LOG_MSG_LEN];
     char recv_buf[MAX_BUF_SIZE];
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_storage client_addr;
     struct sigaction sa;
     socklen_t sin_size;
     HTTP_REQUEST* http_request;
+    static int count = 0;
 
     if (argc == 2)
         strncpy(proxy_port_num, argv[1], sizeof proxy_port_num);
@@ -133,8 +144,14 @@ int main (int argc, char *argv[])
                 exit(1);
             }
 
+            FILE *fp = fopen("proxy.log", "a");
+            memset(log, 0, sizeof(log));
+            memset(s, 0, sizeof(s));
             inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr*)&client_addr), s, sizeof s);
-            fprintf(stdout, "server: got connection from %s\n", s);
+            fprintf(fp, "%02d %s:%05u\n", count, s, get_in_port((struct sockaddr*)&client_addr));
+            count = count + 1;
+            fclose(fp);
+
             child_pid = fork();
         }
 
@@ -150,7 +167,7 @@ int main (int argc, char *argv[])
                 perror("proxy: receive from client");
                 exit(1);
             }
-            printf("income string: %s", recv_buf);
+            printf("%s", recv_buf);
 
             if(strstr(recv_buf, "\r\n\r\n") != NULL)
             {
@@ -158,8 +175,6 @@ int main (int argc, char *argv[])
                 //connect to a server**
                 //send data to a server**
                 //receive data from a server**
-
-                printf("rnrn loop enter\n");
 
                 http_request = parse_http_request(recv_buf, numbytes);
                 print_http_req(http_request);
@@ -212,8 +227,6 @@ int main (int argc, char *argv[])
                 printf("send success\n");
                 while(1)
                 {
-                    memset(recv_buf, 0, sizeof recv_buf);
-
                     if((numbytes = recv(px_sockfd, recv_buf, sizeof(recv_buf), 0)) == -1)
                     {
                         close(connfd);
@@ -226,7 +239,7 @@ int main (int argc, char *argv[])
                     if(numbytes == 0)
                         break;
 
-                    if((send(connfd, recv_buf, sizeof(recv_buf), 0)) == -1)
+                    if((send(connfd, recv_buf, numbytes, 0)) == -1)
                     {
                         close(connfd);
                         close(px_sockfd);
