@@ -3,8 +3,6 @@
 typedef struct http_req{
     char *host_addr;
     char *host_port;
-    char *request_msg;
-    size_t request_msg_len;
 } HTTP_REQUEST;
 
 void free_http_req(HTTP_REQUEST *http_req);

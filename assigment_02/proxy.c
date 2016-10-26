@@ -199,7 +199,7 @@ int main (int argc, char *argv[])
                 }
                 printf("connection success\n");
 
-                if((send (px_sockfd, http_request->request_msg, http_request->request_msg_len, 0) == -1))
+                if((send (px_sockfd, recv_buf, sizeof(recv_buf), 0) == -1))
                 {
                     close(connfd);
                     close(px_sockfd);
