@@ -1,21 +1,22 @@
- #include <stdio.h>
- #include <stdlib.h>
- #include <unistd.h>
- #include <errno.h>
- #include <string.h>
- #include <sys/types.h>
- #include <sys/socket.h>
- #include <netinet/in.h>
- #include <netdb.h>
- #include <arpa/inet.h>
- #include <sys/wait.h>
- #include <signal.h>
- #include <stdbool.h>
- #include <time.h>
- #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <time.h>
+#include <assert.h>
+#include "parse.h"
 
 #define LISTEN_QUEUE_NUM 100
-#define MAX_REQ_SIZE 10000
+#define MAX_BUF_SIZE 10000
 #define MAX_PORT_LEN 6
 void sigchld_handler(int s)
 {
@@ -32,16 +33,17 @@ void *get_in_addr(struct sockaddr *sa)
 int main (int argc, char *argv[])
 {
     char proxy_port_num[MAX_PORT_LEN];
-    int sockfd, connfd;
+    int sockfd, connfd, px_sockfd;
     int sock_binary_opt = 1;
     int child_pid;
-    int rv;
+    int rv, numbytes = 0;
     char s[INET6_ADDRSTRLEN];
-    char req_buf[MAX_REQ_SIZE];
+    char recv_buf[MAX_BUF_SIZE];
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_storage client_addr;
     struct sigaction sa;
     socklen_t sin_size;
+    HTTP_REQUEST* http_request;
 
     if (argc == 2)
         strncpy(proxy_port_num, argv[1], sizeof proxy_port_num);
@@ -143,24 +145,99 @@ int main (int argc, char *argv[])
         // child process
         if(child_pid == 0)
         {
-            int servfd;
-            int numbytes = 0;
-
-            if((numbytes += recv(connfd, req_buf + numbytes, MAX_REQ_SIZE, 0)) == -1)
+            if((numbytes += recv(connfd, recv_buf + numbytes, MAX_BUF_SIZE, 0)) == -1)
             {
                 perror("proxy: receive from client");
                 exit(1);
             }
+            printf("income string: %s", recv_buf);
 
-            if(strstr(req_buf, "\r\n\r\n") != NULL)
+            if(strstr(recv_buf, "\r\n\r\n") != NULL)
             {
-                //parse host, port
-                //connect to a server
-                //send data to a server
-                //receive data from a server
-            }
+                //parse host, port**
+                //connect to a server**
+                //send data to a server**
+                //receive data from a server**
 
-            return 0;
+                printf("rnrn loop enter\n");
+
+                http_request = parse_http_request(recv_buf, numbytes);
+                print_http_req(http_request);
+
+                if((rv = getaddrinfo(http_request->host_addr, http_request->host_port, &hints, &servinfo))  != 0)
+                {
+                    close(connfd);
+                    fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+                    free_http_req(http_request);
+                    exit(-1);
+                }
+
+                for(p = servinfo; p !=  NULL; p = p->ai_next)
+                {
+                    if((px_sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+                    {
+                        perror("proxy| client: socket");
+                        continue;
+                    }
+
+                    if (connect(px_sockfd, p->ai_addr, p->ai_addrlen) == -1){
+                        close (px_sockfd);
+                        perror("pxoxy| clinet: connect");
+
+                        if (p == p->ai_next)
+                            break;
+                        continue;
+                    }
+                    break;
+                }
+
+                if(p == NULL){
+                    close(connfd);
+                    fprintf(stderr, "proxy| clinet: failed to connect\n");
+                    free_http_req(http_request);
+                    exit (-1);
+                }
+                printf("connection success\n");
+
+                if((send (px_sockfd, http_request->request_msg, http_request->request_msg_len, 0) == -1))
+                {
+                    close(connfd);
+                    close(px_sockfd);
+                    perror ("proxy| send");
+                    free_http_req(http_request);
+                    exit (-1);
+                }
+                free_http_req(http_request);
+
+                printf("send success\n");
+                while(1)
+                {
+                    memset(recv_buf, 0, sizeof recv_buf);
+
+                    if((numbytes = recv(px_sockfd, recv_buf, sizeof(recv_buf), 0)) == -1)
+                    {
+                        close(connfd);
+                        close(px_sockfd);
+                        perror("recv");
+                        exit(-1);
+                    }
+                    printf("proxy recv from server: %s", recv_buf);
+
+                    if(numbytes == 0)
+                        break;
+
+                    if((send(connfd, recv_buf, sizeof(recv_buf), 0)) == -1)
+                    {
+                        close(connfd);
+                        close(px_sockfd);
+                        perror("send");
+                        exit(-1);
+                    }
+                }
+                close(connfd);
+                close(px_sockfd);
+                return 0;
+            }
         }
     }
 
