@@ -3,12 +3,23 @@
 #include <stdlib.h>
 #include "parse.h"
 
+/*************************************************************
+ * FUNCTION NAME: free_http_req                                         
+ * PARAMETER: 1) http_req: an HTTP_REQUEST structure to be freed 
+ * PURPOSE: free inside data of an HTTP_REQUEST structure
+ ************************************************************/
 void free_http_req(HTTP_REQUEST *http_req)
 {
     free(http_req->host_addr);
     free(http_req->host_port);
 }
 
+
+/*************************************************************
+ * FUNCTION NAME: print_http_req                                         
+ * PARAMETER: 1) http_req: an HTTP_REQUEST structure to be printed out                                              
+ * PURPOSE: print inside data of an HTTP_REQUEST structure
+ ************************************************************/
 void print_http_req(HTTP_REQUEST *http_req)
 {
     printf("============================\n");
@@ -16,7 +27,12 @@ void print_http_req(HTTP_REQUEST *http_req)
     printf("host_port: %s\n", http_req->host_port);
     printf("============================\n");
 }
-    
+   
+/*************************************************************
+ * FUNCTION NAME: parse_http_request                                         
+ * PARAMETER: 1)input_http_req_msg: a http request message from a client 2)msg_len: length of the request message                                                                    
+ * PURPOSE: parse the input http request message and load the host address and the port number from it 
+ ************************************************************/
 HTTP_REQUEST* parse_http_request(char *input_http_req_msg, size_t msg_len)
 {
     char *host_line;
@@ -61,6 +77,7 @@ HTTP_REQUEST* parse_http_request(char *input_http_req_msg, size_t msg_len)
     return http_req;
 }
 
+/* debugging */
 //int main(void)
 //{
 //    char test1[100] = "GET / HTTP/1.0\r\nHost: www.w3.org\r\nOption:blabla\r\n\r\n";

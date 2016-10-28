@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+/* structure for load a paif of host_addr and host_port */
 typedef struct http_req{
     char *host_addr;
     char *host_port;
