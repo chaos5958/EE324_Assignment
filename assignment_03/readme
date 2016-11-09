@@ -1,0 +1,26 @@
+PA - proxy server
+20120597 Yeo HyunHo
+
+1. how to run the code
+ a. make
+ b. ./proxy [port-number]
+
+
+2. Important features(f) and tasks(t)
+ I decribed all the details in code annotations. 
+
+ a. parent process
+    1) f-listen queue size - 100: handle multiple connection from lots of clients
+    2) t-bind, listen, accept: make a socket and bind, listen, accept
+    3) t-log: log a client address and a port number
+    4) t-fork: creating a child process from each connection 
+
+ b. child process
+    1) t-parsing: parse the http request from an client, and extract address and port number information
+    2) t-connect: connect to the server 
+    3) t-proxy->server(send): I just forward the http request from an client to the server.
+    4) t-server->proxy(recv): I receive the http response from the server and forward it to the client in while loop. 
+
+
+
+
