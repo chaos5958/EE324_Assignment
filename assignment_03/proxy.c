@@ -14,12 +14,40 @@
 #include <time.h>
 #include <assert.h>
 #include "parse.h"
+#include "csapp.h" 
+#include <sys/select.h>
 
 #define LISTEN_QUEUE_NUM 100
 #define MAX_BUF_SIZE 100000
 #define MAX_PORT_LEN 6
 #define LOG_MSG_LEN 100
 
+typedef struct s_pool{
+    int maxfd;
+    fd_set read_set;
+    fd_set write_set;
+    fd_set ready_set;
+    int nready;
+    int maxi;
+    int clientfd[FD_SETSIZE];
+    rio_t clientrio[FD_SETSIZE];
+} pool;
+
+void init_pool(int, pool *);
+void add_client(int, pool *);
+void check_clients(pool *);
+
+void init_pool(int listenfd, pool *p)
+{
+    int i;
+    p->maxi = -1;
+    for (i = 0; i < FD_SETSIZE; i++) {
+        p->clientfd[i] = -1;
+    }   
+    p->maxfd = listenfd;
+    FD_ZERO(&p->read_set);
+    FD_SET(listenfd, &p->read_set);
+}
 /*************************************************************
  * FUNCTION NAME: sigchld_handler                                         
  * PARAMETER: 1) int s: not used                                              
