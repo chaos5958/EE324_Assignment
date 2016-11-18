@@ -1,25 +1,46 @@
-PA - proxy server
+#PA3 - proxy server
 20120597 Yeo HyunHo
 
-1. how to run the code
+#1. how to run the code
  a. make
- b. ./proxy [port-number]
+ b. ./proxy [port-number] [thread-number: default 4]
 
 
-2. Important features(f) and tasks(t)
- I decribed all the details in code annotations. 
-
- a. parent process
-    1) f-listen queue size - 100: handle multiple connection from lots of clients
-    2) t-bind, listen, accept: make a socket and bind, listen, accept
+#2. Important features(f) and tasks(t)
+ "I decribed all the details in code annotations". 
+ "My explanation focuses on important stuffs we covered in this assignemnet, not the basic function like bind, listen, etc..."
+ a. acceptor thread 
+    1) f-listen queue size - 1024(from CMU library setting): handle multiple connections from lots of clients
+    2) t-select - monitor the listen fd and check if there is a request from a client 
+    3) t-task distribution - distribute client requests equally to all worker threads 
     3) t-log: log a client address and a port number
-    4) t-fork: creating a child process from each connection 
 
- b. child process
+ b. woker thread 
     1) t-parsing: parse the http request from an client, and extract address and port number information
     2) t-connect: connect to the server 
     3) t-proxy->server(send): I just forward the http request from an client to the server.
     4) t-server->proxy(recv): I receive the http response from the server and forward it to the client in while loop. 
+
+ c. load balancing 
+    The accpetor thread and the worker thread share the same queue.
+    The first put a client request to it and the second get(retrive) a request from it.
+    Therefore, it needs synchornization to avoid race condtion, and I use mutex and condition variables. 
+    The acceptor thread tries mutex_lock(try_mutext_lock()), if succeeds it puts the task into the queue.
+    (It just tries because the acceptor shouldn't sleep)
+    The worker thread gets mutex_lock, and check whether there are remaing tasks in the queue.
+    If there are no such tasks, then worker thread sleeps with the condition variable.
+    (Later when the acceptor put some task into the queue, it will wake up this thread)
+    Otherwise, the worker thread get the task and do what it have to. 
+
+    In addtion, I distribute the tasks equally into each woker thread's waiting queue. 
+
+d.  number of worker threads
+    I set its default value to 4, because I have 4 processors in my machine.
+    It can be configured by #1
+#Thank you for reading :) 
+#ps. I tested 100 clients as decribed in the notice board
+
+
 
 
 

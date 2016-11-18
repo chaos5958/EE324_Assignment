@@ -31,7 +31,7 @@ void print_http_req(HTTP_REQUEST *http_req)
    
 /*************************************************************
  * FUNCTION NAME: parse_http_request                                         
- * PARAMETER: 1)input_http_req_msg: a http request message from a client 2)msg_len: length of the request message                                                                    
+ * PARAMETER: 1)input_http_req_msg: a http request message from a client 
  * PURPOSE: parse the input http request message and load the host address and the port number from it 
  ************************************************************/
 HTTP_REQUEST* parse_http_request(char *input_http_req_msg)
@@ -42,8 +42,6 @@ HTTP_REQUEST* parse_http_request(char *input_http_req_msg)
     char *host_port;
     char *http_req_msg_header;
     HTTP_REQUEST* http_req = malloc(sizeof(HTTP_REQUEST));
-
-    /*TODO : free or don't use memecpy, malloc */
 
     host_line = strstr(input_http_req_msg, "Host:");
     url = strstr(host_line, "Host:");
