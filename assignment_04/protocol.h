@@ -16,12 +16,11 @@
 #define FILEINFOSHR_OKAY_FROM_SUP_TO_SUP 0x51
 #define FILEINFOSHR_FAIL_FROM_SUP_TO_SUP 0x52
 
-typedef struct _kaza_msg_t {
+typedef struct _kaza_hdr_t {
     int total_len;
     int id;
-    int msd_type;
-    int data;
-} kaza_msg_t;
+    int msg_type;
+} kaza_hdr_t;
 
 typedef struct _file_info_t {
     char name[NAME_MAX];

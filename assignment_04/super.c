@@ -2,10 +2,13 @@
 
 /* $begin echoserversmain */
 #include "csapp.h"
+#include "protocol.h" 
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <getopt.h>
+#include <inttypes.h>
+#include <arpa/inet.h>
 
 typedef struct { /* represents a pool of connected descriptors */ //line:conc:echoservers:beginpool
     int maxfd;        /* largest descriptor in read_set */   
@@ -22,49 +25,109 @@ void add_client(int connfd, pool *p);
 void check_clients(pool *p);
 /* $begin echoserversmain */
 
+static int is_port = 0;
+static int sn_neighbor_ip = 0;
+static int sn_neighbor_port = 0;
+static int sn_neighbor_fd = 0;
+static int node_id = 0;
+static char buf[MAXBUF];
+
 int byte_cnt = 0; /* counts total bytes received by server */
+
+int send_kaza_hdr(int fd, int msg_type)
+{
+    int send_result;
+
+    kaza_hdr_t *hdr;
+    hdr = (kaza_hdr_t *)buf;
+    hdr->total_len = sizeof(kaza_hdr_t);
+    hdr->id= node_id;
+    hdr->msg_type = msg_type;
+
+    Rio_writen(fd, buf, hdr->total_len);
+}
 
 int main(int argc, char **argv)
 {
     int listenfd, connfd, port; 
     int param_opt, option_index;
-    bool is_port = false;
-    bool is_targetip = false;
-    bool is_targetport = false;
     socklen_t clientlen = sizeof(struct sockaddr_in);
-    struct sockaddr_in clientaddr;
+    struct sockaddr_in client_addr, sn_neighbor;
     static pool pool; 
 
-//    if (argc != 2) {
-//	fprintf(stderr, "usage: %s <port>\n", argv[0]);
-//	exit(0);
-//    }
-//    port = atoi(argv[1]);
-
-/* TODO */
+    //super-node takes user inputs
     static struct option long_options[] = {
-        {"s_ip", required_argument, &is_targetip, true},
-        {"s_port", required_argument, &is_targetport, true},
-        {"my_port", required_argument, 0, 'p'}
-    }
+        {"s_ip", required_argument, &sn_neighbor_ip, 1},
+        {"s_port", required_argument, &sn_neighbor_port, 1},
+        {"my_port", required_argument, 0, 'p'},
+        {0, 0, 0, 0}
+    };
 
-    while((param_opt = getopt(argc, argv, "p:", long_options, &option_index) > -1))
+    while((param_opt = getopt_long(argc, argv, "p:", long_options, &option_index)) != -1)
     {
         switch(param_opt)
         {
             case 0:
-                if(long_options[option_index].flag != 0)
+                if(long_options[option_index].flag == 0)
                     break;
                 printf("super| %s: ", long_options[option_index].name);
                 if(optarg)
                     printf("%s", optarg);
                 printf("\n");
+                
+                if(strcmp("s_ip", long_options[option_index].name) == 0)
+                {
+                    if(inet_aton(optarg, &sn_neighbor.sin_addr) == 0)
+                    {
+                        fprintf(stderr, "Unvalid s_ip address\n");
+                        return 0;
+                    }
+                }
+
+                if(strcmp("s_port", long_options[option_index].name) == 0)
+                {
+                    sn_neighbor.sin_port = atoi(optarg);
+                }
+
                 break;
 
             case 'p':
+                is_port = 1;
+                port = atoi(optarg);
+                printf("super| my_port: %s\n", optarg);
+                break;
+
+            case '?':
+                fprintf(stderr, "usage: %s -p [port] --s_ip [ip] --s_port [port]\n", argv[0]);
+                return 0;
+
+            default:
+                printf("param_opt: %d\n", param_opt);
+                fprintf(stderr, "error while reading user input arguments\n");
+                return 0;
         }
     }
 
+    if(is_port == 0 || (sn_neighbor_ip == 0 ^ sn_neighbor_port == 0))
+    {
+        fprintf(stderr, "usage: %s -p [port] --s_ip [ip] --s_port [port]\n", argv[0]);
+        return 0;
+    }
+
+    //DEBUG
+    printf("mine: port=%d, sn_neighbor: ip=%s, port=%u\n", port, inet_ntoa(sn_neighbor.sin_addr), (unsigned)sn_neighbor.sin_port); 
+    
+
+    //do connection setup with another super-node
+    /*TODO*/  
+    if(sn_neighbor_ip && sn_neighbor_port)
+    {
+        sn_neighbor_fd = Open_clientfd(inet_ntoa(sn_neighbor.sin_addr), sn_neighbor.sin_port);
+        send_kaza_hdr(sn_neighbor_fd, HELLO_FROM_SUP_TO_SUP);
+        //Close(sn_neighbor_fd);
+    }
+
+    //do connection setup to serve as a server  
     listenfd = Open_listenfd(port);
     init_pool(listenfd, &pool); //line:conc:echoservers:initpool
     while (1) {
@@ -74,7 +137,7 @@ int main(int argc, char **argv)
 
 	/* If listening descriptor ready, add new client to pool */
 	if (FD_ISSET(listenfd, &pool.ready_set)) { //line:conc:echoservers:listenfdready
-	    connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen); //line:conc:echoservers:accept
+	    connfd = Accept(listenfd, (SA *)&client_addr, &clientlen); //line:conc:echoservers:accept
 	    add_client(connfd, &pool); //line:conc:echoservers:addclient
 	}
 	
@@ -130,8 +193,9 @@ void add_client(int connfd, pool *p)
 void check_clients(pool *p) 
 {
     int i, connfd, n;
-    char buf[MAXLINE]; 
+    bool is_hdr = true;
     rio_t rio;
+    kaza_hdr_t *hdr;
 
     for (i = 0; (i <= p->maxi) && (p->nready > 0); i++) {
 	connfd = p->clientfd[i];
@@ -140,19 +204,29 @@ void check_clients(pool *p)
 	/* If the descriptor is ready, echo a text line from it */
 	if ((connfd > 0) && (FD_ISSET(connfd, &p->ready_set))) { 
 	    p->nready--;
-	    if ((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
-		byte_cnt += n; //line:conc:echoservers:beginecho
-		printf("Server received %d (%d total) bytes on fd %d\n", 
-		       n, byte_cnt, connfd);
-		Rio_writen(connfd, buf, n); //line:conc:echoservers:endecho
-	    }
+        //debug
+        printf("check_clients: connfd %d\n", connfd);
+        byte_cnt = 0;
+        while(1)
+        {
+           n = Rio_readnb(&rio, buf + byte_cnt, MAXLINE);
+           if(n == 0)
+               break;
+           else
+               byte_cnt += n;
+        }
+        printf("check_clients: while end\n");
+        hdr = (kaza_hdr_t *)buf;
+        if(hdr->msg_type == HELLO_FROM_SUP_TO_SUP)
+        {
+            sn_neighbor_fd = rio.rio_fd;
+            fprintf(stdout, "HELLO_FROM_SUP_TO_SUP recv\n");
+        }
 
 	    /* EOF detected, remove descriptor from pool */
-	    else { 
 		Close(connfd); //line:conc:echoservers:closeconnfd
 		FD_CLR(connfd, &p->read_set); //line:conc:echoservers:beginremove
 		p->clientfd[i] = -1;          //line:conc:echoservers:endremove
-	    }
 	}
     }
 }

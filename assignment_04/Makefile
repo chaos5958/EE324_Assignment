@@ -1,22 +1,19 @@
-OBJS = proxy.o parse.o csapp.o
-SRCS = proxy.c parse.c csapp.c
+OBJS = super.o csapp.o
+SRCS = super.c csapp.c
 CC = gcc
 CFLAGS = -o
-TARGET = proxy
+TARGET1 = super 
 OPTION = -lpthread
 
-$(TARGET) : $(OBJS)
-	$(CC) $(CFLAGS) $(TARGET) $(OBJS) $(OPTION)
+$(TARGET1) : $(OBJS)
+	$(CC) $(CFLAGS) $(TARGET1) $(OBJS) $(OPTION)
 
-proxy.o : parse.h proxy.c
-	gcc -c proxy.c
+super.o: super.c
+	gcc -c super.c 
 
-parse.o: parse.h parse.c
-	gcc -c parse.c
-	
 csapp.o: csapp.h csapp.c
 	gcc -c csapp.c
 
 clean:	
-	rm proxy proxy.o parse.o csapp.o
+	rm super super.o csapp.o
 
