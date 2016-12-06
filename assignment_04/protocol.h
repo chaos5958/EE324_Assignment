@@ -16,6 +16,10 @@
 #define FILEINFOSHR_OKAY_FROM_SUP_TO_SUP 0x51
 #define FILEINFOSHR_FAIL_FROM_SUP_TO_SUP 0x52
 
+//client configuration
+#define MAX_CLIENTFILE_NUM 100 
+#define MAX_FILEINFO_NUM MAX_CLIENTFILE_NUM*100//static configuration of maximum file numbers (allows around 100 per a client)
+
 typedef struct _kaza_hdr_t {
     int total_len;
     int id;
@@ -25,9 +29,7 @@ typedef struct _kaza_hdr_t {
 typedef struct _file_info_t {
     char name[NAME_MAX];
     size_t size;
-} file_info_t;
-
-typedef struct _loc_info_t {
+    int client_id;
     uint32_t ip;
     uint16_t port;
-} location_info_t;
+} file_info_t;

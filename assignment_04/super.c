@@ -16,6 +16,7 @@
 #define LOG_MSG_LEN 100
 #define WORKER_THREAD_NUM 1 
 #define ACCEPT_NUM 10000 
+#define MAX_CLIENT_NUM 100
 
 typedef struct { /* represents a pool of connected descriptors */ //line:conc:echoservers:beginpool
     int maxfd;        /* largest descriptor in read_set */   
@@ -43,21 +44,13 @@ static int is_port = 0;
 static int sn_neighbor_ip = 0;
 static int sn_neighbor_port = 0;
 static int sn_neighbor_fd = 0;
-static int node_id = 0;
 static char buf[MAXBUF];
+static int supernode_id;
+static int my_id;
+static int client_id[MAX_CLIENT_NUM];
+static file_info_t file_info[MAX_FILEINFO_NUM];
+static int client_num = 0;
 
-int send_kaza_hdr(int fd, int msg_type)
-{
-    int send_result;
-
-    kaza_hdr_t *hdr;
-    hdr = (kaza_hdr_t *)buf;
-    hdr->total_len = sizeof(kaza_hdr_t);
-    hdr->id= node_id;
-    hdr->msg_type = msg_type;
-
-    Rio_writen(fd, buf, hdr->total_len);
-}
 
 /*************************************************************
  * FUNCTION NAME: enqueue_task                                         
@@ -187,13 +180,21 @@ int main(int argc, char **argv)
     if(sn_neighbor_ip && sn_neighbor_port)
     {
         sn_neighbor_fd = Open_clientfd(inet_ntoa(sn_neighbor.sin_addr), sn_neighbor.sin_port);
-        send_kaza_hdr(sn_neighbor_fd, HELLO_FROM_SUP_TO_SUP);
+        //send_kaza_hdr(sn_neighbor_fd, HELLO_FROM_SUP_TO_SUP);
         //TODO: receiving ID from neighbor 
         Close(sn_neighbor_fd);
     }
 
     //initialize a working thread number;
     num_thread = WORKER_THREAD_NUM;
+
+    //id allocation 
+    srand(time(NULL));
+    my_id = rand(); 
+
+    //client info initialization
+    for (i = 0; i < MAX_CLIENT_NUM; i++) 
+        client_id[i] = -1;
 
     //initializing data used in the acceptor thread
     empty_arr = (pthread_cond_t *)malloc(num_thread * sizeof(pthread_cond_t));
@@ -368,13 +369,17 @@ void check_clients(pool *p, int *worker_index, int num_thread)
 void *supernode_work(void *args)
 {
     int numbytes = 0, cnt = 0;
+    int  msg_size = 0, msg_id = 0, msg_type;
     int connfd = 0, px_sockfd = 0;
     int rv;
     int worker_index;
     char recv_buf[MAXBUF];
+    char send_buf[MAXBUF];
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_storage client_addr;
-    bool is_working = false;
+    bool is_working = false, is_first = true, has_data = false;
+    kaza_hdr_t *recv_hdr;
+    kaza_hdr_t *send_hdr;
 
     worker_index = *(int *)(args);
 
@@ -382,8 +387,57 @@ void *supernode_work(void *args)
     while(1)
     {
         //worker thread dequeue a task from the waiting queue
+        
+
         if(!is_working)
         {
+            //supernode received data and handle it
+            if(has_data)
+            {
+                if(msg_type == HELLO_FROM_CHD_TO_SUP)
+                {
+                    client_id[client_num] = msg_id;
+                    client_num++;
+
+                    send_hdr = (kaza_hdr_t *)send_buf;
+                    send_hdr->id = my_id; 
+                    send_hdr->total_len = sizeof(kaza_hdr_t);
+                    send_hdr->msg_type = HELLO_FROM_SUP_TO_CHD;
+
+                    send(connfd, send_buf, send_hdr->total_len, 0);
+                }
+                else if(msg_type == HELLO_FROM_SUP_TO_SUP)
+                {
+                    supernode_id = msg_id;
+
+                    send_hdr = (kaza_hdr_t *)send_buf;
+                    send_hdr->id = my_id; 
+                    send_hdr->total_len = sizeof(kaza_hdr_t);
+                    send_hdr->msg_type = HELLO_FROM_SUP_TO_SUP;
+
+                    send(connfd, send_buf, send_hdr->total_len, 0);
+                }
+                else if(msg_type == FILEINFO_FROM_CHD_TO_SUP)
+                {
+                    //user clientinfo array is importatnt
+                    /*TODO: save file info into file info array*/
+                    /*TODO: file info share between supernodes*/
+
+                }
+                else if(msg_type == SEARCHQRY_FROM_CHD_TO_SUP)
+                {
+                    /*TODO: search in the file info array and respond*/
+                }
+                else if(msg_type == FILEINFOSHR_FROM_SUP_TO_SUP)
+                {
+                    /*TODO: add file info*/  
+                }
+                else
+                {
+                    /* wrong msg_type */
+                    fprintf(stderr, "supernode: recv wrong msg_type\n");
+                }
+            }
             //initialize the working thread
             memset(recv_buf, 0, sizeof(recv_buf));
             if(connfd != -1)
@@ -393,10 +447,13 @@ void *supernode_work(void *args)
             }
             cnt = 0;
             numbytes = 0;
+            is_first = true;
+            has_data = false;
 
             //get the work from the waiting queue 
             connfd = dequeue_task(worker_index);
             is_working = true;
+
         }
         //worker thread has a task to handle
         else
@@ -404,10 +461,39 @@ void *supernode_work(void *args)
             //receive from the client
             cnt = recv(connfd, recv_buf + numbytes, MAX_BUF_SIZE, 0);
             if(cnt > 0)
-                numbytes += cnt;
+            {
+                if(is_first)
+                {
+                    recv_hdr = (kaza_hdr_t *)buf;
+                    msg_id = recv_hdr->id;
+                    msg_size = recv_hdr->total_len;
+                    msg_type = recv_hdr->msg_type;
+                    is_first = false;
+
+                    msg_size -= cnt;
+                    numbytes += cnt;
+
+                    has_data = true; 
+                }
+                /* mostly, used for data send and recv */
+                else
+                {
+                    fprintf(stdout, "supernode: recv too much data\n");
+                    if(msg_size <= 0)
+                        is_working = false;
+                    msg_size -= cnt;
+                    numbytes += cnt;
+                }
+
+                if(msg_size == 0)
+                {
+                    fprintf(stdout, "supernode: recv msg_dize ==0\n");
+                    is_working = false;
+                }
+            }
             else if(cnt == -1)
             {
-                perror("worker thread recv from the client");
+                perror("worker thread recv -1 from the client");
                 is_working = false;
             }
             else if(cnt == 0)
