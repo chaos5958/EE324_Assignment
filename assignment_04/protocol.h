@@ -29,7 +29,11 @@ typedef struct _kaza_hdr_t {
 typedef struct _file_info_t {
     char name[NAME_MAX];
     size_t size;
-    int client_id;
+    node_info_t node_info;
+} file_info_t;
+
+typedef struct _node_info_t {
+    int id;
     uint32_t ip;
     uint16_t port;
-} file_info_t;
+} node_info_t;

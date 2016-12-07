@@ -34,6 +34,8 @@ void check_clients(pool *p, int*, int);
 void* supernode_work(void *);
 int enqueue_task(int, int);
 int dequeue_task(int);
+bool check_valid_client(int);
+bool add_fileinfo(file_info_t *);
 
 int byte_cnt = 0; /* counts total bytes received by server */
 pthread_cond_t *empty_arr; /* condition variable to wake up worker threads when input comes */
@@ -47,11 +49,36 @@ static int sn_neighbor_fd = 0;
 static char buf[MAXBUF];
 static int supernode_id;
 static int my_id;
-static int client_id[MAX_CLIENT_NUM];
-static file_info_t file_info[MAX_FILEINFO_NUM];
+static int clientid_arr[MAX_CLIENT_NUM];
+static file_info_t fileinfo_arr[MAX_FILEINFO_NUM];
 static int client_num = 0;
+static int file_num = 0;
 
+bool add_fileinfo(file_info_t *file_info)
+{
+    //doesn't check the validity of a file (duplicat name, wrong id, etc..)
+    fileinfo_arr[file_num].node_info.ip = file_info->ip;
+    fileinfo_arr[file_num].node_info.port = file_info->port;
+    fileinfo_arr[file_num].node_info.id= file_info->client_id;
+    fileinfo_arr[file_num].size = file_info->size;
+    memcpy(fileinfo_arr[file_num].name, file_info->name, NAME_MAX);
 
+    return true;
+}
+bool check_valid_client(int id)
+{
+    int i;
+    
+    if(id < 0)
+        return false;
+
+    for (i = 0; i < MAX_CLIENT_NUM; i++) {
+        if(id == clientid_arr[i])
+            return true;
+    }
+
+    return false;
+}
 /*************************************************************
  * FUNCTION NAME: enqueue_task                                         
  * PARAMETER: 1)index: worker thread's index 2)connf: accepted file descriptor to be enqueued                                              
@@ -182,6 +209,7 @@ int main(int argc, char **argv)
         sn_neighbor_fd = Open_clientfd(inet_ntoa(sn_neighbor.sin_addr), sn_neighbor.sin_port);
         //send_kaza_hdr(sn_neighbor_fd, HELLO_FROM_SUP_TO_SUP);
         //TODO: receiving ID from neighbor 
+        
         Close(sn_neighbor_fd);
     }
 
@@ -194,7 +222,7 @@ int main(int argc, char **argv)
 
     //client info initialization
     for (i = 0; i < MAX_CLIENT_NUM; i++) 
-        client_id[i] = -1;
+        clientid_arr[i] = -1;
 
     //initializing data used in the acceptor thread
     empty_arr = (pthread_cond_t *)malloc(num_thread * sizeof(pthread_cond_t));
@@ -380,6 +408,7 @@ void *supernode_work(void *args)
     bool is_working = false, is_first = true, has_data = false;
     kaza_hdr_t *recv_hdr;
     kaza_hdr_t *send_hdr;
+    file_info_t *recv_fileinfo;
 
     worker_index = *(int *)(args);
 
@@ -394,9 +423,10 @@ void *supernode_work(void *args)
             //supernode received data and handle it
             if(has_data)
             {
+                //save a client info and response
                 if(msg_type == HELLO_FROM_CHD_TO_SUP)
                 {
-                    client_id[client_num] = msg_id;
+                    clientid_arr[client_num] = msg_id;
                     client_num++;
 
                     send_hdr = (kaza_hdr_t *)send_buf;
@@ -406,9 +436,11 @@ void *supernode_work(void *args)
 
                     send(connfd, send_buf, send_hdr->total_len, 0);
                 }
+                //save a supernode info and response 
                 else if(msg_type == HELLO_FROM_SUP_TO_SUP)
                 {
                     supernode_id = msg_id;
+                    //TODO: ip & port
 
                     send_hdr = (kaza_hdr_t *)send_buf;
                     send_hdr->id = my_id; 
@@ -419,8 +451,57 @@ void *supernode_work(void *args)
                 }
                 else if(msg_type == FILEINFO_FROM_CHD_TO_SUP)
                 {
+                    //valid client 
+                    if(check_valid_client(msg_id))
+                    {
+                       recv_fileinfo = (file_info_t *)(buf + sizeof(kaza_hdr_t));
+                       //file info add success - 1) save file info 2) propagate to another supernode 
+                       if(add_fileinfo(recv_fileinfo))
+                       {
+                           send_hdr = (kaza_hdr_t *)send_buf;
+                           send_hdr->id = my_id; 
+                           send_hdr->total_len = sizeof(kaza_hdr_t);
+                           send_hdr->msg_type = FILEINFO_OKAY_FROM_SUP_TO_CHD;
+
+                           send(connfd, send_buf, send_hdr->total_len, 0);
+
+                           //another supernode is connected
+                           if(supernode_id != -1)
+                           {
+                               //response to a client 
+                               send_hdr = (kaza_hdr_t *)send_buf;
+                               send_hdr->id = supernode_id; 
+                               send_hdr->total_len = sizeof(kaza_hdr_t);
+                               send_hdr->msg_type = FILEINFOSHR_FROM_SUP_TO_SUP;
+
+                               //propagate file info to another supernode
+                           }
+                       }
+                       //file info add fail
+                       else
+                       {
+                           send_hdr = (kaza_hdr_t *)send_buf;
+                           send_hdr->id = my_id; 
+                           send_hdr->total_len = sizeof(kaza_hdr_t);
+                           send_hdr->msg_type = FILEINFO_FAIL_FROM_SUP_TO_CHD;
+
+                           send(connfd, send_buf, send_hdr->total_len, 0);
+                       }
+                    }
+                    //unvalid client
+                    else
+                    {
+                        send_hdr = (kaza_hdr_t *)send_buf;
+                        send_hdr->id = my_id; 
+                        send_hdr->total_len = sizeof(kaza_hdr_t);
+                        send_hdr->msg_type = FILEINFO_OKAY_FROM_SUP_TO_CHD;
+
+                        send(connfd, send_buf, send_hdr->total_len, 0);
+
+                        is_working = false;
+                        fprintf(stdout, "supernode: unvalid client file info\n");
+                    } 
                     //user clientinfo array is importatnt
-                    /*TODO: save file info into file info array*/
                     /*TODO: file info share between supernodes*/
 
                 }
