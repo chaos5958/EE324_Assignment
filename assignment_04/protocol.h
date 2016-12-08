@@ -5,7 +5,7 @@
 #define HELLO_FROM_SUP_TO_SUP 0x12
 #define FILEINFO_FROM_CHD_TO_SUP 0x20
 #define FILEINFO_OKAY_FROM_SUP_TO_CHD 0x21
-#define FILEINDO_FAIL_FROM_SUP_TO_CHD 0x22
+#define FILEINFO_FAIL_FROM_SUP_TO_CHD 0x22
 #define SEARCHQRY_FROM_CHD_TO_SUP 0x30
 #define SEARCHQRY_OKAY_FROM_SUP_TO_CHD 0x31
 #define SEARCHQRY_FAIL_FORM_SUP_TO_CHD 0x32
@@ -26,14 +26,20 @@ typedef struct _kaza_hdr_t {
     int msg_type;
 } kaza_hdr_t;
 
-typedef struct _file_info_t {
-    char name[NAME_MAX];
-    size_t size;
-    node_info_t node_info;
-} file_info_t;
-
 typedef struct _node_info_t {
-    int id;
     uint32_t ip;
     uint16_t port;
 } node_info_t;
+
+typedef struct _file_info_t {
+    char name[NAME_MAX];
+    size_t size;
+    int id;
+    node_info_t node_info;
+} file_info_t;
+
+typedef struct _conn_info_t {
+    int fd;
+    node_info_t node_info;
+} conn_info_t;
+
