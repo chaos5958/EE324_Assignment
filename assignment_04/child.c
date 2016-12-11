@@ -678,7 +678,7 @@ void *child_backgroud_work(void *args)
 /*************************************************************
  * FUNCTION NAME: child_io_work                                         
  * PARAMETER: 1)args - thread's index (not used because I only use one io worker thread)                                              
- * PURPOSE: explain the purpose of the function
+ * PURPOSE: handle user input command like 'get [ori_name] [dest_name]' 
  ************************************************************/
 void *child_io_work(void *args)
 {
