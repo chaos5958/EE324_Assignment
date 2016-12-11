@@ -21,7 +21,7 @@ typedef struct { /* represents a pool of connected descriptors */ //line:conc:ec
     fd_set read_set;  /* set of all active descriptors */
     fd_set ready_set; /* subset of descriptors ready for reading  */
     int nready;       /* number of ready descriptors from select */   
-    int maxi;         /* highwater index into client array */
+    int maxi;         /* highwater index into child array */
     int clientfd[FD_SETSIZE];    /* set of active descriptors */
     rio_t clientrio[FD_SETSIZE]; /* set of active read buffers */
 } pool; 
@@ -41,21 +41,26 @@ int *count_arr; /* managing how many number of tasks in the worker thread queue 
 conn_info_t **accept_queue; /* worker threads's queue */
 static int is_port = 0;
 static char buf[MAXBUF];
-static int my_id;
-static node_info_t childinfo_arr[MAX_CHILD_NUM];
-static node_info_t sn_neighbor_info; 
-static file_info_t fileinfo_arr[MAX_FILEINFO_NUM];
-static int child_num = 0;
-static int file_num = 0;
-static int port;
+static int my_id; //my id number
+static node_info_t childinfo_arr[MAX_CHILD_NUM]; //array consisted of child information
+static node_info_t sn_neighbor_info; //neighborhood supernode's infomation
+static file_info_t fileinfo_arr[MAX_FILEINFO_NUM]; //array consisted of file information
+static int child_num = 0; //holding child number
+static int file_num = 0; //holding file number
+static int port; //listen port
 
+/*************************************************************
+ * FUNCTION NAME: search_file                                         
+ * PARAMETER: 1)filename: name of a file which will be searched                                              
+ * PURPOSE: search a file with a name 'filename' in 'fileinfo_arr' and return it(or NULL)  
+ ************************************************************/
 node_info_t* search_file(char *filename)
 {
     int i, child_id = -1;
 
     for (i = 0; i < file_num; i++) {
 
-        printf("filename=%s fileinfo_arr=%s\n", filename, fileinfo_arr[i].name);
+        write_log("filename=%s fileinfo_arr=%s\n", filename, fileinfo_arr[i].name);
 
         if(strcmp(filename, fileinfo_arr[i].name) == 0)
         {
@@ -63,23 +68,16 @@ node_info_t* search_file(char *filename)
         }
     }
 
-//    if(child_id == -1)
-//    {
-//        write_log("supernode: search_file no matching file to given filename\n");
-//        return NULL;
-//    }
-//
-//    for (i = 0; i < child_num; i++) {
-//        printf("fileid %d, childid %d\n", child_id, childinfo_arr[i].id);
-//        if(child_id == childinfo_arr[i].id)
-//            return &childinfo_arr[i];
-//    }
-
-    fprintf(stderr, "supernode: search_file no matching client info to given id\n");
+    fprintf(stderr, "supernode: search_file no matching child info to given id\n");
 
     return NULL;
 }
 
+/*************************************************************
+ * FUNCTION NAME: add_fileinfo                                         
+ * PARAMETER: 1)fileinfo: information of a file to be inserted to 'fileinfo_arr'                                              
+ * PURPOSE: insert file_info_t' structure into 'fileinfo_arr" 
+ ************************************************************/
 bool add_fileinfo(file_info_t *file_info)
 {
     //TODO: check the validity of a file (duplicat name, wrong id, etc..)
@@ -94,6 +92,11 @@ bool add_fileinfo(file_info_t *file_info)
     return true;
 }
 
+/*************************************************************
+ * FUNCTION NAME: is_valid_chd                                         
+ * PARAMETER: 1)id: id to be tested whether it is valid or not                                              
+ * PURPOSE: check whether 'id' is one of child id of a supernode
+ ************************************************************/
 bool is_valid_chd(int id)
 {
     int i;
@@ -109,6 +112,7 @@ bool is_valid_chd(int id)
 
     return false;
 }
+
 /*************************************************************
  * FUNCTION NAME: enqueue_task                                         
  * PARAMETER: 1)index: worker thread's index 2)connf: accepted file descriptor to be enqueued                                              
@@ -232,9 +236,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    
     //do connection setup with another super-node
-    //TODO: test
     if(sn_neighbor_ip && sn_neighbor_port)
     {
         char *temp_send_buf = (char *)malloc(sizeof(kaza_hdr_t) + sizeof(node_info_t));
@@ -276,7 +278,7 @@ int main(int argc, char **argv)
     srand(time(NULL));
     my_id = rand(); 
 
-    //client info initialization
+    //child info initialization
     for (i = 0; i < MAX_CHILD_NUM; i++) 
         childinfo_arr[i].id = -1;
 
@@ -296,7 +298,7 @@ int main(int argc, char **argv)
         count_arr[i] = -1;
     }
 
-    //creating worker threadds
+    //creating worker threads
     for (i = 0; i < num_thread; i++) {
         int thread_id = pthread_create(&pthread_arr[i], NULL, &supernode_work, (void *)&ids[i]);
         if(thread_id == -1)
@@ -320,29 +322,29 @@ int main(int argc, char **argv)
         pool.ready_set = pool.read_set;
         pool.nready = select(pool.maxfd+1, &pool.ready_set, NULL, NULL, &timeout);
 
-        /* If listening descriptor ready, add new client to pool */
+        /* If listening descriptor ready, add new child to pool */
         if (FD_ISSET(listenfd, &pool.ready_set)) { 
             connfd = accept(listenfd, (SA *)&clientaddr, &clientlen); 
-
-            //write_log("supernode: listenfd is active\n");
 
             if(connfd < 0)
             {
                 perror("main thread: accept failed\n");
                 continue;
             }
+
+            /*1)enqueue chlid's connection information 
+              2)distribute it to worker threads*/
             enqueue_info.fd = connfd;
             enqueue_info.node_info.ip = clientaddr.sin_addr;
             enqueue_info.node_info.port = clientaddr.sin_port;
 
-            /*distribute accepted file descriptors to the worker threads*/
             enqueue_result = enqueue_task(worker_index, enqueue_info); 
 
             if(enqueue_result == -1)
             {
                 fprintf(stderr, "supernode id %d: queue is full\n", my_id);
                 continue;
-                /* TODO: implement load handling when client request are too many */
+                /* TODO: implement load handling when child request are too many */
                 /* conceptually 1) create new thread or 2) send error message to user(try again) */
             }
 
@@ -380,8 +382,8 @@ void init_pool(int listenfd, pool *p)
 
 /*************************************************************
  * FUNCTION NAME: supernode_work                                         
- * PARAMETER: 1)args: worker thread index                                              
- * PURPOSE: worker thread does following jobs 1) receive an http request from an client 2) parse it and extract an server address and an port number 3) send the request to a server 4) receive the response from a server and send it to an server 
+ * PARAMETER: 1)args: worker thread index(not used in this project because I used only one worker thread)                                              
+ * PURPOSE: worker thread does following jobs 1) receive a message from a supernode or a child 2) do appropriate job based on information decribed in the message
 
  ************************************************************/
 void *supernode_work(void *args)
@@ -407,14 +409,15 @@ void *supernode_work(void *args)
     /*worker thread jobs*/
     while(1)
     {
-        //worker thread dequeue a task from the waiting queue
+        //worker thread dequeues a task from the waiting queue
         if(!is_working)
         {
-            //supernode received data and handle it
+            //supernode do some jobs  when it received all data
             if(has_data)
             {
                 switch(msg_type)
                 {
+                    //hello from a child
                     case HELLO_FROM_CHD_TO_SUP:
                         write_log("supernode id %d: msg id %d: HELLO_FROM_CHD_TO_SUP\n", my_id, msg_id);
                         childinfo_arr[child_num].id = msg_id;
@@ -431,9 +434,11 @@ void *supernode_work(void *args)
                         send(connfd, send_buf, send_hdr->total_len, 0);
                         break;
 
+                    //hello from a supernode
                     case HELLO_FROM_SUP_TO_SUP:
                         write_log("supernode id %d: HELLO_FROM_SUP_TO_SUP\n", my_id);
-                        if(sn_neighbor_info.id != -1)
+                        
+                        if(sn_neighbor_info.id != -1)//already has a neighbor super node
                             break;
 
                         sn_neighbor_info.id = msg_id;
@@ -449,16 +454,18 @@ void *supernode_work(void *args)
 
                         break;
 
+                    //file information request from a child
                     case FILEINFO_FROM_CHD_TO_SUP:
                         write_log("supernode id %d msg_id %d: FILEINFO_FROM_CHD_TO_SUP\n",my_id, msg_id);
-                        //valid client 
+                        //valid child 
                         if(is_valid_chd(msg_id))
                         {
                             recv_fileinfo = (file_info_t *)(recv_buf + sizeof(kaza_hdr_t));
-                            //file info add success - 1) save file info 2) propagate to another supernode 
+                            
                             write_log("supernode id %d msg_id %d: recv_file name=%s recv_file size=%zu\n", my_id, msg_id, recv_fileinfo->name, recv_fileinfo->size);
                             recv_fileinfo->node_info.ip = recv_conninfo.node_info.ip;
-                            if(add_fileinfo(recv_fileinfo))
+                            //file info add success - 1) save file info 2) propagate to another supernode 
+                            if(add_fileinfo(recv_fileinfo)) // 1)
                             {
                                 send_hdr = (kaza_hdr_t *)send_buf;
                                 send_hdr->id = my_id; 
@@ -467,8 +474,7 @@ void *supernode_work(void *args)
 
                                 send(connfd, send_buf, send_hdr->total_len, 0);
 
-                                //another supernode is connected
-                                if(sn_neighbor_info.id != -1)
+                                if(sn_neighbor_info.id != -1) // 2)
                                 {
 
                                     write_log("mine: port=%d, sn_neighbor: ip=%s, port=%u\n", port, inet_ntoa(sn_neighbor_info.ip), (unsigned)sn_neighbor_info.port); 
@@ -486,7 +492,8 @@ void *supernode_work(void *args)
                                     Close(temp_fd);
                                 }
                             }
-                            else
+                            //file information add fail
+                            else //not used
                             {
                                 send_hdr = (kaza_hdr_t *)send_buf;
                                 send_hdr->id = my_id; 
@@ -496,16 +503,18 @@ void *supernode_work(void *args)
                                 send(connfd, send_buf, send_hdr->total_len, 0);
                             }
                         }
-                        //unvalid client (unused now - add_fileinfo return true)
+                        //unvalid child (unused now - add_fileinfo return true)
                         else
-                            fprintf(stderr, "supernode: unvalid client file info request \n");
+                            fprintf(stderr, "supernode: unvalid child file info request \n");
                         break;
 
+                    //search query from a child
                     case SEARCHQRY_FROM_CHD_TO_SUP:
                         write_log("supernode id %d: SEARCHQRY_FROM_CHD_TO_SUP\n", my_id);
                         char temp_filename[NAME_MAX];
                         node_info_t *temp_nodeinfo;
 
+                        //valid child
                         if(is_valid_chd(msg_id))
                         {
                             memset(temp_filename, 0, sizeof(temp_filename));
@@ -539,12 +548,13 @@ void *supernode_work(void *args)
                         }
                         break;
 
+                    //file information share message from a supernode
                     case FILEINFOSHR_FROM_SUP_TO_SUP:
                         write_log("supernode id %d: FILEINFOSHR_FROM_SUP_TO_SUP\n", my_id);
                         recv_fileinfo = (file_info_t *)(recv_buf + sizeof(kaza_hdr_t));
-                        //file info add success - 1) save file info 2) propagate to another supernode 
                         write_log("supernode id %d: filename=%s\n", my_id, recv_fileinfo->name);
-                        if(add_fileinfo(recv_fileinfo))
+                        //file info add success 
+                        if(add_fileinfo(recv_fileinfo)) 
                         {
                             send_hdr = (kaza_hdr_t *)send_buf;
                             send_hdr->id = my_id; 
@@ -554,7 +564,7 @@ void *supernode_work(void *args)
                             send(connfd, send_buf, send_hdr->total_len, 0);
 
                         }
-                        //file info add fail
+                        //file info add fail (not used)
                         else
                         {
                             send_hdr = (kaza_hdr_t *)send_buf;
@@ -584,7 +594,7 @@ void *supernode_work(void *args)
             is_first = true;
             has_data = false;
 
-            //get the work from the waiting queue 
+            //get a task from the waiting queue 
             recv_conninfo = dequeue_task(worker_index);
             connfd = recv_conninfo.fd;
             is_working = true;
@@ -592,7 +602,7 @@ void *supernode_work(void *args)
         //worker thread has a task to handle
         else
         {
-            //receive from the client
+            //receive from the child
             cnt = recv(connfd, recv_buf + numbytes, MAX_BUF_SIZE, 0);
             if(cnt > 0)
             {
@@ -605,11 +615,9 @@ void *supernode_work(void *args)
                     temp_msg_size = msg_size;
                     msg_type = recv_hdr->msg_type;
                     is_first = false;
-                    //write_log("cnt: %d, temp_msg_size: %d\n", cnt, temp_msg_size);
 
                     temp_msg_size -= cnt;
                     numbytes += cnt;
-                    //write_log("cnt: %d, temp_msg_size: %d\n", cnt, temp_msg_size);
 
                     has_data = true; 
                 }
@@ -628,7 +636,7 @@ void *supernode_work(void *args)
             }
             else if(cnt == -1)
             {
-                perror("worker thread recv -1 from the client");
+                perror("worker thread recv -1 from the child");
                 is_working = false;
             }
             else if(cnt == 0)

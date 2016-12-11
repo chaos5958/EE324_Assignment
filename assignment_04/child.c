@@ -37,8 +37,6 @@ void* child_backgroud_work(void *);
 void* child_io_work(void *);
 int enqueue_bg_task(int, conn_info_t);
 conn_info_t dequeue_bgtask(int);
-//bool check_valid_client(int);
-//bool add_fileinfo(file_info_t *);
 node_info_t *search_file(char *);
 int enqueue_io_task(int index, char *ori_filename, char *dest_filename);
 conn_info_t dequeue_bgtask(int index);
@@ -58,52 +56,10 @@ static int my_id;
 static const int worker_index = 0;
 static const int io_index = 1;
 
-
-/*
-node_info_t* search_file(char *filename)
-{
-    int i;
-
-    for (i = 0; i < file_num; i++) {
-        if(strcmp(filename, fileinfo_arr[i].name) == 0)
-            return &fileinfo_arr[i].node_info;
-    }
-
-    return NULL;
-}
-
-bool add_fileinfo(file_info_t *file_info)
-{
-    //TODO: check the validity of a file (duplicat name, wrong id, etc..)
-    fileinfo_arr[file_num].node_info.ip = file_info->node_info.ip;
-    fileinfo_arr[file_num].node_info.port = file_info->node_info.port;
-    fileinfo_arr[file_num].id= file_info->id;
-    fileinfo_arr[file_num].size = file_info->size;
-    memcpy(fileinfo_arr[file_num].name, file_info->name, NAME_MAX);
-
-    return true;
-}
-
-bool check_valid_client(int id)
-{
-    int i;
-
-    if(id < 0)
-        return false;
-
-    for (i = 0; i < MAX_CLIENT_NUM; i++) {
-        if(id == clientid_arr[i])
-            return true;
-    }
-
-    return false;
-}
-*/
-
 /*************************************************************
  * FUNCTION NAME: enqueue_bg_task                                         
- * PARAMETER: 1)index: worker thread's index 2)connf: accepted file descriptor to be enqueued                                              
- * PURPOSE: enqueue a task into a worker thread queue 
+ * PARAMETER: 1)index: worker thread's index 2)conn_info: connect child information 
+ * PURPOSE: enqueue a task into a background worker thread queue 
  ************************************************************/
 int enqueue_bg_task(int index, conn_info_t conn_info)
 {
@@ -126,6 +82,11 @@ int enqueue_bg_task(int index, conn_info_t conn_info)
     return 0;
 }
 
+/*************************************************************
+ * FUNCTION NAME: enqueue_io_task                                         
+ * PARAMETER: 1)index: woker thread's index 2)ori_filname: original file name 3) dest_filename: destination file name                                              
+ * PURPOSE: enqueue a task into a io woker thread queue
+ ************************************************************/
 int enqueue_io_task(int index, char *ori_filename, char *dest_filename)
 {
     pthread_mutex_lock(&mutex_arr[index]);
@@ -152,7 +113,7 @@ int enqueue_io_task(int index, char *ori_filename, char *dest_filename)
 /*************************************************************
  * FUNCTION NAME: dequeue_bgtask                                         
  * PARAMETER: 1)index: worker thread's index                                              
- * PURPOSE: dequeue a task from a worker thread queue
+ * PURPOSE: dequeue a task from a background worker thread queue
  ************************************************************/
 conn_info_t dequeue_bgtask(int index)
 {
@@ -169,6 +130,11 @@ conn_info_t dequeue_bgtask(int index)
     return dequeue_conn_info; 
 }
 
+/*************************************************************
+ * FUNCTION NAME: dequeue_iotask                                         
+ * PARAMETER: 1)index: worker thread's index                                              
+ * PURPOSE: dequeue a task from a io worker thread queue 
+ ************************************************************/
 io_info_t dequeue_iotask(int index)
 {
     io_info_t dequeue_io_info;
@@ -200,7 +166,7 @@ int main(int argc, char **argv)
     static int sn_connect_ip = 0;
     static int sn_connect_port = 0;
     
-    //super-node takes user inputs
+    //child-node takes user inputs
     static struct option long_options[] = {
         {"s_ip", required_argument, &sn_connect_ip, 1},
         {"s_port", required_argument, &sn_connect_port, 1},
@@ -262,8 +228,7 @@ int main(int argc, char **argv)
     srand(time(NULL));
     my_id = rand(); 
 
-    //do connection setup with another super-node
-    //TODO: test
+    //connect to a supernode and send all file information which a child owns
     if(sn_connect_ip && sn_connect_port)
     {
         write_log("mine: port=%d, sn_connect: ip=%s, port=%u\n", port, inet_ntoa(sn_connect_info.ip), (unsigned)sn_connect_info.port); 
@@ -284,6 +249,7 @@ int main(int argc, char **argv)
         temp_hdr->total_len = sizeof(kaza_hdr_t) + sizeof(uint16_t);
         *temp_port = port; 
 
+        //1) connect to a supernode
         sn_connect_fd = Open_clientfd(inet_ntoa(sn_connect_info.ip), sn_connect_info.port);
         if(sn_connect_ip < 0)
         {
@@ -307,7 +273,7 @@ int main(int argc, char **argv)
         }
 
        
-        //TODO: test (only skeleton done)
+        //2) send all file's information which stored in ./data directory
         //'/data' directory search and send file info
         if((dir = opendir("./data")) != NULL)
         {
@@ -381,7 +347,7 @@ int main(int argc, char **argv)
         bg_accept_queue[i] = (conn_info_t *)malloc(ACCEPT_NUM * sizeof(conn_info_t));
         bg_count_arr[i] = -1;
         ids[i] = i;
-        printf("num_bgthread: %d\n", num_bgthread);
+        write_log("num_bgthread: %d\n", num_bgthread);
 
         int bg_thread_id = pthread_create(&bg_pthread_arr[i], NULL, &child_backgroud_work, (void *)&ids[i]);
         if(bg_thread_id == -1)
@@ -401,15 +367,15 @@ int main(int argc, char **argv)
     timeout.tv_sec = 2;
     timeout.tv_usec = 0;
 
+    printf("input command: ");
     /* the accpetor thread job */
     while (1) {
         /* Wait for listening/connected descriptor(s) to become ready - timeout 5 seconds to check_clients frequently*/
         conn_info_t enqueue_info;
         pool.ready_set = pool.read_set;
         pool.nready = Select(pool.maxfd+1, &pool.ready_set, NULL, NULL, NULL);
-        //pool.nready = select(pool.maxfd+1, &pool.ready_set, NULL, NULL, NULL);
 
-        /* If listening descriptor ready, add new client to pool */
+        //input from listedfd: background thread's job
         if (FD_ISSET(listenfd, &pool.ready_set)) { 
             connfd = accept(listenfd, (SA *)&clientaddr, &clientlen); 
             if(connfd < 0)
@@ -421,9 +387,9 @@ int main(int argc, char **argv)
             enqueue_info.fd = connfd;
             enqueue_info.node_info.ip = clientaddr.sin_addr;
             enqueue_info.node_info.port = clientaddr.sin_port;
-
-            
-            /*distribute accepted file descriptors to the worker threads*/
+             
+            /*1)enqueue chlid's connection information 
+              2)distribute it to worker threads*/
             enqueue_result = enqueue_bg_task(worker_index, enqueue_info); 
 
             if(enqueue_result == -1)
@@ -435,9 +401,11 @@ int main(int argc, char **argv)
             }
         }
 
+        //input from stdin: io thread's job
         if(FD_ISSET(STDIN_FILENO, &pool.ready_set))
         {
-            printf("stdin start\n");
+            printf("input command: ");
+
             char io_buf[CHILD_IO_MAX_LEN];
             char *ori_filename;
             char *dest_filename;
@@ -449,6 +417,7 @@ int main(int argc, char **argv)
             memset(io_buf, 0, sizeof(io_buf));
             numbytes = read(STDIN_FILENO, io_buf, sizeof(io_buf));
 
+            //parse a input command and check it's validity
             token = strtok(io_buf, " ");
             token_num++;
 
@@ -480,9 +449,11 @@ int main(int argc, char **argv)
                 continue;
             }
         
-            printf("token_num = %d\n", token_num);
+            write_log("token_num = %d\n", token_num);
             write_log("client id %d: get %s %s\n", my_id, ori_filename, dest_filename);
 
+            /*1)enqueue file names related information 
+              2)distribute it to worker threads*/
             enqueue_result = enqueue_io_task(io_index, ori_filename, dest_filename); 
 
             if(enqueue_result == -1)
@@ -533,8 +504,11 @@ void init_pool(int listenfd, pool *p)
     FD_SET(listenfd, &p->read_set); 
 }
 
-//TODO: add these threads in main function 
-//handle file request from other childs
+/*************************************************************
+ * FUNCTION NAME: child_background_work                                         
+ * PARAMETER: 1)args - worker thread's index (not used because I only use one background worker thread)                                              
+ * PURPOSE: handle a file request from other childs 
+ ************************************************************/
 void *child_backgroud_work(void *args)
 {
     int numbytes = 0, cnt = 0;
@@ -571,6 +545,7 @@ void *child_backgroud_work(void *args)
                     int fd;
                     struct stat stat_buf;
 
+                    //file request from other childs
                     case FILEREQ_FROM_FROM_CHD_TO_CHD:
                         write_log("child id %d: FILEREQ_FROM_FROM_CHD_TO_CHD\n", my_id);
                     
@@ -581,6 +556,7 @@ void *child_backgroud_work(void *args)
                         write_log("child id %d: file_relative_path=%s\n", my_id , file_relative_path);
 
                         fp = fopen(file_relative_path, "r");
+                        //file doesn't exist
                         if(fp == NULL)
                         {
                             send_hdr = (kaza_hdr_t *)send_buf;
@@ -593,9 +569,11 @@ void *child_backgroud_work(void *args)
                             fprintf(stderr, "client id %d: dosen't have file %s\n", my_id, file_relative_path);
                             break;
                         }
+                        //file exist
                         fd = fileno(fp);
                         fstat(fd, &stat_buf); 
                         
+                        //send a header 
                         send_hdr = (kaza_hdr_t *)send_buf;
                         send_hdr->id = my_id;
                         send_hdr->total_len = sizeof(kaza_hdr_t) + stat_buf.st_size;
@@ -604,6 +582,7 @@ void *child_backgroud_work(void *args)
                         send(connfd, send_buf, sizeof(kaza_hdr_t), 0);
                         write_log("child id %d: file length %zu\n", my_id, stat_buf.st_size);
 
+                        //send a file data
                         int numbytes;
                         while(1)
                         {
@@ -623,6 +602,7 @@ void *child_backgroud_work(void *args)
                         fclose(fp);
                         break;
 
+                    //unvalid request 
                     default:
                         fprintf(stderr, "child id %d: unvalid msg_type\n", my_id);
                 }
@@ -641,7 +621,7 @@ void *child_backgroud_work(void *args)
             is_first = true;
             has_data = false;
 
-            //get the work from the waiting queue 
+            //get a task from the waiting queue 
             write_log("before deque_bgtask\n");
             recv_conninfo = dequeue_bgtask(worker_index);
             write_log("after deque_bgtask\n");
@@ -697,7 +677,11 @@ void *child_backgroud_work(void *args)
 
 }
 
-//handle user command like "get 12.txt asdf.txt 
+/*************************************************************
+ * FUNCTION NAME: child_io_work                                         
+ * PARAMETER: 1)args - thread's index (not used because I only use one io worker thread)                                              
+ * PURPOSE: explain the purpose of the function
+ ************************************************************/
 void *child_io_work(void *args)
 {
     io_info_t recv_ioinfo;
@@ -712,6 +696,7 @@ void *child_io_work(void *args)
 
         write_log("client id %d: child_io_work get %s %s\n", my_id, recv_ioinfo.ori_name, recv_ioinfo.dest_name);
 
+        //send a search query to a supernode
         int sn_connect_fd = Open_clientfd(inet_ntoa(sn_connect_info.ip), sn_connect_info.port);
         if(sn_connect_fd < 0)
         {
@@ -730,6 +715,7 @@ void *child_io_work(void *args)
 
         Close(sn_connect_fd);         
 
+        //target file information is stored in a supernode
         if(kaza_hdr->msg_type == SEARCHQRY_OKAY_FROM_SUP_TO_CHD)
         {
             node_info_t *chd_conn_info= (node_info_t*)(io_buf + sizeof(kaza_hdr_t));
@@ -746,20 +732,20 @@ void *child_io_work(void *args)
             kaza_hdr->msg_type = FILEREQ_FROM_FROM_CHD_TO_CHD; 
             memcpy(io_buf + sizeof(kaza_hdr_t), recv_ioinfo.ori_name, strlen(recv_ioinfo.ori_name) + 1);
 
-            printf("before send\n");
             send(chd_conn_fd, io_buf, kaza_hdr->total_len, 0);
-            printf("before recv\n");
             recv(chd_conn_fd, io_buf, sizeof(kaza_hdr_t), 0); 
-            printf("after recv\n");
 
             write_log("child id %d: connection to another child success\n", my_id);
                         
+            //target file data is stored in another child
             if(kaza_hdr->msg_type == FILEREQ_OKAY_FROM_CHD_TO_CHD)
             {
                 char file_relative_path[PATH_MAX]; 
                 write_log("child id %d: dowload content\n", my_id);
                 int numbytes, file_size = 0;
                 file_size = kaza_hdr->total_len - sizeof(kaza_hdr_t);
+
+                //open a file in ./download directory and get contents from connected child
                 memset(file_relative_path, 0, sizeof(file_relative_path));
                 snprintf(file_relative_path, sizeof(file_relative_path), "./download/%s", recv_ioinfo.dest_name);
                 write_log("child id %d: file_relative_path=%s, recv_fileinfo=%s, strlen_relative=%zu strlen_recv=%zu\n", my_id, file_relative_path, recv_ioinfo.dest_name, strlen(file_relative_path), strlen(recv_ioinfo.dest_name));
@@ -797,6 +783,7 @@ void *child_io_work(void *args)
                     fprintf(stderr, "child id %d: recv file size wrong %d bytes\n", my_id, file_size);
 
             }
+            //target file data isn't stored in another child
             else
             {
                 fprintf(stderr, "child id %d: file %s doesn't exists (child wrong)\n", my_id, recv_ioinfo.ori_name);
@@ -805,6 +792,7 @@ void *child_io_work(void *args)
             }
 
         }
+        //target file information is not stored in a supernode
         else
             write_log("child id %d: no matching file %s\n", my_id, recv_ioinfo.ori_name); 
 
