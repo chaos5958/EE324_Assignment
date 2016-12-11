@@ -54,23 +54,26 @@ node_info_t* search_file(char *filename)
     int i, child_id = -1;
 
     for (i = 0; i < file_num; i++) {
+
+        printf("filename=%s fileinfo_arr=%s\n", filename, fileinfo_arr[i].name);
+
         if(strcmp(filename, fileinfo_arr[i].name) == 0)
         {
-            child_id = fileinfo_arr[i].id;
-            break;
+            return &fileinfo_arr[i].node_info;
         }
     }
 
-    if(child_id == -1)
-    {
-        write_log("supernode: search_file no matching file to given filename\n");
-        return NULL;
-    }
-
-    for (i = 0; i < child_num; i++) {
-        if(child_id = childinfo_arr[i].id)
-            return &childinfo_arr[i];
-    }
+//    if(child_id == -1)
+//    {
+//        write_log("supernode: search_file no matching file to given filename\n");
+//        return NULL;
+//    }
+//
+//    for (i = 0; i < child_num; i++) {
+//        printf("fileid %d, childid %d\n", child_id, childinfo_arr[i].id);
+//        if(child_id == childinfo_arr[i].id)
+//            return &childinfo_arr[i];
+//    }
 
     fprintf(stderr, "supernode: search_file no matching client info to given id\n");
 
@@ -82,7 +85,11 @@ bool add_fileinfo(file_info_t *file_info)
     //TODO: check the validity of a file (duplicat name, wrong id, etc..)
     fileinfo_arr[file_num].id= file_info->id;
     fileinfo_arr[file_num].size = file_info->size;
+    fileinfo_arr[file_num].node_info.ip = file_info->node_info.ip;
+    fileinfo_arr[file_num].node_info.port = file_info->node_info.port;
     memcpy(fileinfo_arr[file_num].name, file_info->name, NAME_MAX);
+
+    file_num++;
 
     return true;
 }
@@ -409,10 +416,11 @@ void *supernode_work(void *args)
                 switch(msg_type)
                 {
                     case HELLO_FROM_CHD_TO_SUP:
-                        write_log("supernode id %d, msg id %d: HELLO_FROM_CHD_TO_SUP\n", my_id, msg_id);
+                        write_log("supernode id %d: msg id %d: HELLO_FROM_CHD_TO_SUP\n", my_id, msg_id);
                         childinfo_arr[child_num].id = msg_id;
                         childinfo_arr[child_num].ip = recv_conninfo.node_info.ip; 
                         childinfo_arr[child_num].port = *recv_port; 
+                        write_log("supernode id %d: ip=%s, port=%d\n", my_id, inet_ntoa(recv_conninfo.node_info.ip), recv_conninfo.node_info.port); 
                         child_num++;
 
                         send_hdr = (kaza_hdr_t *)send_buf;
@@ -449,6 +457,7 @@ void *supernode_work(void *args)
                             recv_fileinfo = (file_info_t *)(recv_buf + sizeof(kaza_hdr_t));
                             //file info add success - 1) save file info 2) propagate to another supernode 
                             write_log("supernode id %d msg_id %d: recv_file name=%s recv_file size=%zu\n", my_id, msg_id, recv_fileinfo->name, recv_fileinfo->size);
+                            recv_fileinfo->node_info.ip = recv_conninfo.node_info.ip;
                             if(add_fileinfo(recv_fileinfo))
                             {
                                 send_hdr = (kaza_hdr_t *)send_buf;
@@ -467,9 +476,10 @@ void *supernode_work(void *args)
                                     int temp_fd = Open_clientfd(inet_ntoa(sn_neighbor_info.ip), sn_neighbor_info.port);
                                     send_hdr = (kaza_hdr_t *)send_buf;
                                     send_hdr->id = sn_neighbor_info.id; 
-                                    send_hdr->total_len = sizeof(kaza_hdr_t);
+                                    send_hdr->total_len = sizeof(kaza_hdr_t) + sizeof(file_info_t);
                                     send_hdr->msg_type = FILEINFOSHR_FROM_SUP_TO_SUP;
                                     memcpy(send_buf + sizeof(kaza_hdr_t), recv_fileinfo, sizeof(file_info_t));
+                                    write_log("filename=%s\n", recv_fileinfo->name);
                                     send(temp_fd, send_buf, send_hdr->total_len, 0);
 
                                     //TODO: recv 0x51 or 0x52  
@@ -498,14 +508,18 @@ void *supernode_work(void *args)
 
                         if(is_valid_chd(msg_id))
                         {
+                            memset(temp_filename, 0, sizeof(temp_filename));
                             memcpy(temp_filename, recv_buf + sizeof(kaza_hdr_t), msg_size - sizeof(kaza_hdr_t));
 
                             //file exists
                             if((temp_nodeinfo = search_file(temp_filename)) != NULL)
                             {
+
+                                write_log("supernode id %d: ip=%s, port=%d\n",my_id, inet_ntoa(temp_nodeinfo->ip), temp_nodeinfo->port); 
+
                                 send_hdr = (kaza_hdr_t *)send_buf;
                                 send_hdr->id = my_id; 
-                                send_hdr->total_len = sizeof(kaza_hdr_t);
+                                send_hdr->total_len = sizeof(kaza_hdr_t) + sizeof(node_info_t);
                                 send_hdr->msg_type = SEARCHQRY_OKAY_FROM_SUP_TO_CHD;
                                 memcpy(send_buf  + sizeof(kaza_hdr_t), temp_nodeinfo, sizeof(node_info_t)); 
 
@@ -527,8 +541,9 @@ void *supernode_work(void *args)
 
                     case FILEINFOSHR_FROM_SUP_TO_SUP:
                         write_log("supernode id %d: FILEINFOSHR_FROM_SUP_TO_SUP\n", my_id);
-                        recv_fileinfo = (file_info_t *)(buf + sizeof(kaza_hdr_t));
+                        recv_fileinfo = (file_info_t *)(recv_buf + sizeof(kaza_hdr_t));
                         //file info add success - 1) save file info 2) propagate to another supernode 
+                        write_log("supernode id %d: filename=%s\n", my_id, recv_fileinfo->name);
                         if(add_fileinfo(recv_fileinfo))
                         {
                             send_hdr = (kaza_hdr_t *)send_buf;

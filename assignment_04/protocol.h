@@ -22,9 +22,10 @@
 
 #define IS_DEBUGMODE 1
 
-//client configuration
+//child configuration
 #define MAX_CHILD_NUM 100 
 #define MAX_FILEINFO_NUM MAX_CHILD_NUM*100//static configuration of maximum file numbers (allows around 100 per a client)
+#define IO_QUEUE_SIZE 10 
 #define write_log(format, args...)  \
     if(IS_DEBUGMODE) {              \
         printf(format, ## args);    \
@@ -51,6 +52,7 @@ typedef struct _file_info_t {
     char name[NAME_MAX];
     size_t size;
     int id;
+    node_info_t node_info;
 } file_info_t;
 
 typedef struct _conn_info_t {
@@ -58,6 +60,10 @@ typedef struct _conn_info_t {
     node_addr_t node_info;
 } conn_info_t;
 
+typedef struct _io_info_t {
+    char ori_name[NAME_MAX];
+    char dest_name[NAME_MAX];
+} io_info_t;
 
 
 

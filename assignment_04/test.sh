@@ -27,6 +27,8 @@ cp ../tmp/1/* data
 gnome-terminal --tab -e "/bin/bash -c './child -p 22221 --s_ip 127.0.0.1 --s_port 11111; exec /bin/bash -i'"
 cd ..
 
+sleep 1s
+
 cd child2
 rm -rf download data
 mkdir download
