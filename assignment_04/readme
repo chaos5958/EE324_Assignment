@@ -1,0 +1,92 @@
+#PA4 - p2p application
+20120597 Yeo HyunHo
+
+"I decribed all the details in code annotations". 
+"My explanation focuses on important stuffs(designs) covered in this assignemnet, not the basic function like bind, listen, etc..."
+
+##################IMPORTANT####################
+I assign IDs of childs and supernodes based on rand(), and it's seed is come from srand(time(NULL)).
+Therefore, the delay should be allocated between ./super ./child (super, child creation).
+Otherwise, same IDs among child nodes and super nodes could be "fatal".  
+###############################################
+
+#1. how to run the code
+ a. make
+ b. supernode - 2 types 1) ./super -p [portnum] 2) ./super -p [portnum] --s_ip [neighborip] --s_port [neighborport]
+ c. child - ./child -p [portnum] --s_ip [neighborip] --s_port [neighborport]
+
+#2. p2p application design
+ a. protocol
+     I implement all data structures in "protocol.h".
+     #1) kaza_hdr_t: p2p application protocol header
+     typedef struct _kaza_hdr_t {
+        int total_len;
+        int id;
+        int msg_type;
+     } kaza_hdr_t;
+     #2) node_info_t: save node's id, ip, port information to connect
+     typedef struct _node_info_t {
+     int id;
+     struct in_addr ip;
+        uint16_t port;
+     } node_info_t;
+     #3) node_addr_t: save node's ip, port information (similar to 2), It could be removed by code refinment) 
+     typedef struct _node_addr_t {
+         struct in_addr ip;
+         uint16_t port;
+     } node_addr_t;
+     #4) file_info_t: save file's name, size, id, node_info(who owns this file)  
+     typedef struct _file_info_t {
+         char name[NAME_MAX];
+         size_t size;
+         int id;
+         node_info_t node_info;
+     } file_info_t;
+     #5) conn_info_t: save connected fd and ip, port to enqueue a task into a worker thread 
+     typedef struct _conn_info_t {
+         int fd;
+         node_addr_t node_info;
+     } conn_info_t;
+     #6) io_info_t: save orignal and destination file name which received by sending a search query (used only in child)_ 
+     typedef struct _io_info_t {
+         char ori_name[NAME_MAX];
+         char dest_name[NAME_MAX];
+     } io_info_t;
+
+     I used above data structures to communicate between childs and supernodes.
+        
+ b. super-node
+    A super node consists of two threads. 
+    The first thread is an acceptor thread, and the second thread is a worker thread.
+    An acceptor thread handles 1)I/O multiplexing using select() function 2)giving tasks to a worker thread. 
+    A worker thread does all jobs which a super-node should do, and it could be breifly summarized as communicating with a child or a supernode.
+
+ c. child-node
+    A child node consists of three threads.
+    The first thread is an acceptor thread which role is same as super-node's one.
+    The second thread is an background worker thread which handles a file request from other childs and sending a file.
+    The last thread is an io worker thread which handles user input commands like 'get 1_1.txt 1_1.txt' and downloading a file.
+    ###child usage###
+    "using flowing format"
+    $get [original filename] [destinationi filename]
+
+#3. shortages
+ a. error handling
+    1) delay 
+        The document mentioned that each network transaction should take less than 2 seconds.
+        However, I'm not sure how to restrict this rule.
+        
+    2) 0x51, 0x52
+        In case of fail to share file information between supernodes, I don't know how to handle this situation. 
+
+#4. etc
+ a. I tested my program based on "test.sh" which emulates 2 supernodes and 2 childs.
+ b. "DEBUG" option can be turned on by setting IS_DEBUGMODE 1
+
+#Thank you for reading :) 
+
+
+
+
+
+

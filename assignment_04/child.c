@@ -51,10 +51,10 @@ io_info_t *io_accept_queue;
 
 static int is_port = 0;
 static char buf[MAXBUF];
-static node_info_t sn_connect_info;
-static int my_id;
-static const int worker_index = 0;
-static const int io_index = 1;
+static node_info_t sn_connect_info; //connected supernode information
+static int my_id; //my id
+static const int worker_index = 0; //index for a background worker thread
+static const int io_index = 1; //index for a io worker thread
 
 /*************************************************************
  * FUNCTION NAME: enqueue_bg_task                                         
@@ -367,7 +367,6 @@ int main(int argc, char **argv)
     timeout.tv_sec = 2;
     timeout.tv_usec = 0;
 
-    printf("input command: ");
     /* the accpetor thread job */
     while (1) {
         /* Wait for listening/connected descriptor(s) to become ready - timeout 5 seconds to check_clients frequently*/
@@ -404,7 +403,6 @@ int main(int argc, char **argv)
         //input from stdin: io thread's job
         if(FD_ISSET(STDIN_FILENO, &pool.ready_set))
         {
-            printf("input command: ");
 
             char io_buf[CHILD_IO_MAX_LEN];
             char *ori_filename;
@@ -423,7 +421,7 @@ int main(int argc, char **argv)
 
             if(token == NULL || strcmp(token, "get") != 0)
             {
-                fprintf(stderr, "child id %d: use 'get [ori_filename] [dest_filename]'\n", my_id);
+                write_log("child id %d: use 'get [ori_filename] [dest_filename]'\n", my_id);
                 continue;
             }
             

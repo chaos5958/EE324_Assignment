@@ -20,7 +20,7 @@
 #define FILEINFOSHR_FAIL_FROM_SUP_TO_SUP 0x52
 #define CHILD_IO_MAX_LEN (NAME_MAX*2 + 5)
 
-#define IS_DEBUGMODE 1
+#define IS_DEBUGMODE 0 
 
 //child configuration
 #define MAX_CHILD_NUM 100 
